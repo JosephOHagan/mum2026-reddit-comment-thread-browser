@@ -1,0 +1,17 @@
+========================================================================
+POST URL:   https://www....example_url
+POST TITLE: This is An Example of the Post Title
+========================================================================
+
+POST TEXT:
+----------------------------------------
+This is the post text.
+
+This is an example of a top level comment with no replies. 
+
+The text the poster made for the above URL and title.
+----------------------------------------
+
+COMMENT THREAD:
+----------------------------------------
+[reddit_user_1]: This is an example of a top level comment. This is an example of a top level comment with no replies. 

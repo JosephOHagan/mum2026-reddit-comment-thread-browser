@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Reddit Thread Browser</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #161a21;
+    --border: #2a2f3a;
+    --text: #e6e8eb;
+    --text-dim: #9aa1ac;
+    --accent: #ff5700;
+    --accent-dim: #4a3a2e;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+
+  /* Top bar */
+  #topbar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 14px; background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    height: 52px;
+  }
+  #topbar button {
+    background: #232830; color: var(--text); border: 1px solid var(--border);
+    padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 13px;
+  }
+  #topbar button:hover { background: #2c333e; }
+  #topbar button:disabled { opacity: 0.4; cursor: default; }
+  #fileCounter { color: var(--text-dim); font-size: 13px; white-space: nowrap; }
+  #currentTitle {
+    flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 13px; color: var(--text-dim);
+  }
+  #copyUrlBtn.copied { background: var(--accent); color: #1a1a1a; border-color: var(--accent); }
+
+  /* Empty state */
+  #empty {
+    height: calc(100% - 52px); display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 14px; color: var(--text-dim); text-align: center; padding: 30px;
+  }
+  #empty.hidden { display: none; }
+  #emptyMessage {
+    border: 1px solid var(--border); border-radius: 10px; padding: 40px 60px;
+  }
+  #emptyMessage button {
+    margin-top: 16px;
+  }
+
+  /* Main layout */
+  #main { display: none; height: calc(100% - 52px); }
+  #main.active { display: flex; }
+
+  .pane {
+    width: 50%; height: 100%; overflow-y: auto; padding: 24px 28px;
+  }
+  #leftPane { border-right: 1px solid var(--border); background: #3a3d44; }
+  #leftPane, #rightPane { scrollbar-width: thin; }
+
+  .post-title { font-size: 20px; font-weight: 700; margin: 0 0 6px 0; line-height: 1.3; }
+  .post-url { font-size: 12px; color: var(--accent); word-break: break-all; text-decoration: none; }
+  .post-url:hover { text-decoration: underline; }
+  .post-text { margin-top: 18px; font-size: 15px; line-height: 1.6; color: #d7d9dc; }
+  .post-text p { margin: 0 0 14px 0; }
+  .post-text a { color: var(--accent); }
+  .post-text-empty { color: var(--text-dim); font-style: italic; margin-top: 18px; }
+
+  .pane-heading {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--text-dim); margin: 0 0 14px 0; font-weight: 600;
+  }
+
+  .comment {
+    border-left: 2px solid var(--border);
+    padding: 8px 0 8px 14px;
+    margin: 0 0 4px 0;
+  }
+  .comment-body { font-size: 14px; line-height: 1.55; }
+  .comment-author { color: var(--accent); font-weight: 600; margin-right: 6px; }
+  .comment-copy-btn {
+    background: none; border: 1px solid var(--border); color: var(--text-dim);
+    border-radius: 4px; font-size: 11px; line-height: 1; padding: 3px 7px;
+    cursor: pointer; vertical-align: middle; white-space: nowrap;
+  }
+  .comment-copy-btn:hover { background: #232830; color: var(--text); }
+  .comment-copy-btn.copied { background: var(--accent); color: #1a1a1a; border-color: var(--accent); }
+  .comment-text p { margin: 4px 0; }
+  .comment-text a { color: var(--accent); }
+  .comment-empty { color: var(--text-dim); font-style: italic; }
+
+  /* File list drawer */
+  #drawerToggle { }
+  #drawer {
+    position: fixed; top: 52px; left: 0; bottom: 0; width: 300px;
+    background: var(--panel); border-right: 1px solid var(--border);
+    transform: translateX(-100%); transition: transform 0.18s ease;
+    overflow-y: auto; z-index: 10;
+  }
+  #drawer.open { transform: translateX(0); }
+  #drawerOverlay {
+    position: fixed; inset: 0; top: 52px; background: rgba(0,0,0,0.4);
+    display: none; z-index: 9;
+  }
+  #drawerOverlay.open { display: block; }
+  .file-item {
+    padding: 10px 14px; font-size: 13px; cursor: pointer; border-bottom: 1px solid var(--border);
+    color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .file-item:hover { background: #1d222b; color: var(--text); }
+  .file-item.active { background: var(--accent-dim); color: var(--text); }
+
+  @media (max-width: 800px) {
+    #main.active { flex-direction: column; }
+    .pane { width: 100%; height: 50%; }
+    #leftPane { border-right: none; border-bottom: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <button id="drawerBtn" title="File list" disabled>&#9776; Files</button>
+  <button id="openBtn">Open Folder</button>
+  <input type="file" id="fileInput" webkitdirectory directory multiple style="display:none">
+  <button id="prevBtn" disabled>&larr; Prev</button>
+  <button id="nextBtn" disabled>Next &rarr;</button>
+  <button id="copyUrlBtn" title="Copy post URL" disabled>&#128203; Copy URL</button>
+  <span id="fileCounter"></span>
+  <span id="currentTitle"></span>
+</div>
+
+<div id="drawerOverlay"></div>
+<div id="drawer"></div>
+
+<div id="empty">
+  <div id="emptyMessage">
+    <div style="font-size:16px; margin-bottom:8px;">No folder loaded</div>
+    <div style="font-size:13px;">Open a folder of .txt files to get started</div>
+    <button id="openBtn2">Open Folder</button>
+  </div>
+</div>
+
+<div id="main">
+  <div id="leftPane" class="pane">
+    <a id="postUrl" class="post-url" href="#" target="_blank" rel="noopener"></a>
+    <h1 id="postTitle" class="post-title"></h1>
+    <div id="postText" class="post-text"></div>
+  </div>
+  <div id="rightPane" class="pane">
+    <p class="pane-heading">Comment Thread</p>
+    <div id="commentThread"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  let posts = [];      // { name, url, title, postText, comments: [{indent, author, text}] }
+  let currentIndex = -1;
+
+  const openBtn = document.getElementById('openBtn');
+  const openBtn2 = document.getElementById('openBtn2');
+  const fileInput = document.getElementById('fileInput');
+  const prevBtn = document.getElementById('prevBtn');
+  const nextBtn = document.getElementById('nextBtn');
+  const copyUrlBtn = document.getElementById('copyUrlBtn');
+  const fileCounter = document.getElementById('fileCounter');
+  const currentTitle = document.getElementById('currentTitle');
+  const emptyEl = document.getElementById('empty');
+  const mainEl = document.getElementById('main');
+  const drawer = document.getElementById('drawer');
+  const drawerBtn = document.getElementById('drawerBtn');
+  const drawerOverlay = document.getElementById('drawerOverlay');
+
+  const postUrlEl = document.getElementById('postUrl');
+  const postTitleEl = document.getElementById('postTitle');
+  const postTextEl = document.getElementById('postText');
+  const commentThreadEl = document.getElementById('commentThread');
+
+  // ---------- Parsing ----------
+
+  function parsePostFile(name, raw) {
+    const lines = raw.split(/\r\n|\r|\n/);
+    let url = '', title = '';
+    let state = 'header';
+    const postTextLines = [];
+    const commentLines = [];
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (state === 'header') {
+        if (line.startsWith('POST URL:')) { url = line.slice('POST URL:'.length).trim(); continue; }
+        if (line.startsWith('POST TITLE:')) { title = line.slice('POST TITLE:'.length).trim(); continue; }
+        if (line.startsWith('POST TEXT:')) { state = 'posttext-wait-dash'; continue; }
+      } else if (state === 'posttext-wait-dash') {
+        if (/^-{5,}$/.test(line.trim())) { state = 'posttext'; }
+        continue;
+      } else if (state === 'posttext') {
+        if (/^-{5,}$/.test(line.trim())) { state = 'after-posttext'; continue; }
+        postTextLines.push(line);
+      } else if (state === 'after-posttext') {
+        if (line.trim() === 'COMMENT THREAD:') { state = 'comments-wait-dash'; }
+      } else if (state === 'comments-wait-dash') {
+        if (/^-{5,}$/.test(line.trim())) { state = 'comments'; }
+        continue;
+      } else if (state === 'comments') {
+        commentLines.push(line);
+      }
+    }
+
+    const comments = parseComments(commentLines);
+
+    return {
+      name,
+      url,
+      title: title || name,
+      postText: postTextLines.join('\n').trim(),
+      comments
+    };
+  }
+
+  function parseComments(commentLines) {
+    const comments = [];
+    const startRe = /^( *)\[([^\]]+)\]:\s?(.*)$/;
+    let current = null;
+
+    for (const line of commentLines) {
+      const m = line.match(startRe);
+      if (m) {
+        current = { indent: m[1].length, author: m[2], textLines: [m[3]] };
+        comments.push(current);
+      } else if (current) {
+        current.textLines.push(line);
+      }
+    }
+
+    return comments.map(c => ({
+      indent: c.indent,
+      author: c.author,
+      text: c.textLines.join('\n').replace(/\n{3,}/g, '\n\n').trim()
+    }));
+  }
+
+  // ---------- Rendering helpers ----------
+
+  function escapeHtml(s) {
+    return s
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function renderMarkdownish(text) {
+    if (!text) return '';
+    // strip reddit zero-width-space markers used as paragraph glue
+    let t = text.replace(/&#x200B;/g, '');
+    t = escapeHtml(t);
+    // links: [label](url)
+    t = t.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    // bold
+    t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    // paragraphs split on blank lines, single \n -> <br>
+    const paras = t.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
+    if (paras.length === 0) return '';
+    return paras.map(p => '<p>' + p.replace(/\n/g, '<br>') + '</p>').join('');
+  }
+
+  function renderPost(post) {
+    postUrlEl.href = post.url || '#';
+    postUrlEl.textContent = post.url || '';
+    postTitleEl.textContent = post.title;
+    const html = renderMarkdownish(post.postText);
+    postTextEl.innerHTML = html || '<div class="post-text-empty">(no post text)</div>';
+
+    if (!post.comments.length) {
+      commentThreadEl.innerHTML = '<div class="comment-empty">(no comments)</div>';
+    } else {
+      commentThreadEl.innerHTML = post.comments.map((c, i) => {
+        const marginPx = Math.min(c.indent, 40) * 8;
+        return `<div class="comment" style="margin-left:${marginPx}px">
+          <div class="comment-body">
+            <span class="comment-author">${escapeHtml(c.author)}</span>
+            <button class="comment-copy-btn" data-comment-index="${i}" title="Copy comment">&#128203; Copy comment</button>
+            <div class="comment-text">${renderMarkdownish(c.text)}</div>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    document.getElementById('leftPane').scrollTop = 0;
+    document.getElementById('rightPane').scrollTop = 0;
+  }
+
+  function renderDrawer() {
+    drawer.innerHTML = posts
+      .map((p, i) =>
+        `<div class="file-item${i === currentIndex ? ' active' : ''}" data-index="${i}" title="${escapeHtml(p.name)}">${escapeHtml(p.title || p.name)}</div>`
+      ).join('');
+  }
+
+  function goTo(index) {
+    if (index < 0 || index >= posts.length) return;
+    currentIndex = index;
+    renderPost(posts[currentIndex]);
+    fileCounter.textContent = `${currentIndex + 1} / ${posts.length}`;
+    currentTitle.textContent = posts[currentIndex].title;
+    prevBtn.disabled = currentIndex === 0;
+    nextBtn.disabled = currentIndex === posts.length - 1;
+    copyUrlBtn.disabled = !posts[currentIndex].url;
+    renderDrawer();
+  }
+
+  // ---------- Loading files ----------
+
+  async function loadFiles(fileList) {
+    const txtFiles = Array.from(fileList)
+      .filter(f => f.name.toLowerCase().endsWith('.txt'))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+
+    if (!txtFiles.length) {
+      alert('No .txt files found.');
+      return;
+    }
+
+    const loaded = [];
+    for (const f of txtFiles) {
+      const text = await f.text();
+      loaded.push(parsePostFile(f.name, text));
+    }
+
+    posts = loaded;
+    emptyEl.classList.add('hidden');
+    mainEl.classList.add('active');
+    drawerBtn.disabled = false;
+    goTo(0);
+  }
+
+  // ---------- Events ----------
+
+  openBtn.addEventListener('click', () => fileInput.click());
+  openBtn2.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', (e) => loadFiles(e.target.files));
+
+  prevBtn.addEventListener('click', () => goTo(currentIndex - 1));
+  nextBtn.addEventListener('click', () => goTo(currentIndex + 1));
+
+  async function copyToClipboard(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (err) {
+      // fallback for contexts where clipboard API is unavailable
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+  }
+
+  function flashCopied(btn, copiedHtml) {
+    const originalHtml = btn.innerHTML;
+    btn.innerHTML = copiedHtml;
+    btn.classList.add('copied');
+    setTimeout(() => {
+      btn.innerHTML = originalHtml;
+      btn.classList.remove('copied');
+    }, 1200);
+  }
+
+  copyUrlBtn.addEventListener('click', async () => {
+    if (currentIndex < 0) return;
+    const url = posts[currentIndex].url;
+    if (!url) return;
+    await copyToClipboard(url);
+    flashCopied(copyUrlBtn, '&#10003; Copied!');
+  });
+
+  commentThreadEl.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.comment-copy-btn');
+    if (!btn || currentIndex < 0) return;
+    const commentIndex = parseInt(btn.dataset.commentIndex, 10);
+    const comment = posts[currentIndex].comments[commentIndex];
+    if (!comment) return;
+    await copyToClipboard(comment.text);
+    flashCopied(btn, '&#10003; Copied');
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === 'j') goTo(currentIndex + 1);
+    if (e.key === 'ArrowLeft' || e.key === 'k') goTo(currentIndex - 1);
+    if (e.key === 'Escape') closeDrawer();
+  });
+
+  function openDrawer() { drawer.classList.add('open'); drawerOverlay.classList.add('open'); }
+  function closeDrawer() { drawer.classList.remove('open'); drawerOverlay.classList.remove('open'); }
+  drawerBtn.addEventListener('click', () => {
+    drawer.classList.contains('open') ? closeDrawer() : openDrawer();
+  });
+  drawerOverlay.addEventListener('click', closeDrawer);
+  drawer.addEventListener('click', (e) => {
+    const item = e.target.closest('.file-item');
+    if (item) { goTo(parseInt(item.dataset.index, 10)); closeDrawer(); }
+  });
+
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+========================================================================
+POST URL:   https://www....example_url
+POST TITLE: This is An Example of the Post Title
+========================================================================
+
+POST TEXT:
+----------------------------------------
+This is the post text.
+
+The text the poster made for the above URL and title.
+----------------------------------------
+
+COMMENT THREAD:
+----------------------------------------
+[reddit_user_1]: This is an example of a top level comment with replies.
+  [reddit_user_2]: This is an example of a reply to a top level comment.
+    [reddit_user_1]: This is an example of a reply to a reply... and so on.
